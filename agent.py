@@ -1,0 +1,50 @@
+import numpy as np
+from env import Gluco_env
+from stable_baselines3 import PPO
+import matplotlib.pyplot as plt
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.callbacks import ProgressBarCallback
+
+def main():
+    env = Gluco_env()
+    check_env(env, warn=True)
+    model = PPO("MlpPolicy", env, verbose=0)
+    model.learn(total_timesteps=20000, progress_bar=ProgressBarCallback())
+    model.save("ppo_model")
+
+    window_size = 20
+
+    rewards, gluco_levels = env.get_res() #valori che ritorna l'environment
+
+    rewards_smooth = np.convolve(rewards, np.ones(window_size)/window_size, mode='valid')
+
+    fig = plt.figure(figsize=(14,10))
+    fig.subplots_adjust(hspace=0.5)  # Aggiunge spazio tra i grafici
+    plt.subplot(2,1,1)
+    plt.plot(rewards_smooth)
+    plt.title("Rewards")
+    plt.xlabel("Time (steps)")
+    plt.ylabel("Reward value")
+    plt.grid(True)
+    plt.legend()
+
+    # Curva glicemia
+    plt.subplot(2,1,2)
+    plt.plot(gluco_levels)
+    plt.ylim(0, 400)  # Limiti asse Y
+    plt.axhspan(70, 180, color="green", alpha=0.15) # Zona verde (70–180 mg/dL)
+    plt.axhline(70, color="red", linestyle="--", linewidth=1)
+    plt.axhline(250, color="red", linestyle="--", linewidth=1) # Linee rosse tratteggiate per ipo/iper
+    plt.xlabel("Time (steps)")
+    plt.ylabel("Glucose [mg/dL]")
+    plt.title("Glucose Levels Over Time")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+
+
+    plt.show()
+    env.close()
+
+
+if __name__ == "__main__":
+    main()
