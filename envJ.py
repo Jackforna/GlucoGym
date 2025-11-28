@@ -1,6 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+from collections import deque
 
 class Gluco_env(gym.Env):
 
@@ -10,7 +11,9 @@ class Gluco_env(gym.Env):
         self.action_space = spaces.MultiDiscrete([2,2])  #2 azioni discrete perchè rappresentano scelte finite
 
         #gli stati invece saranno continui poichè rappresentano grandezze variabili nel tempo
-        #Stato: ...
+        #Stato: livello glicemia, orario giornata, carboidrati ingeriti, tempo passato dall'ultimo pasto, 
+        # insulina presa, tempo passato dall'ultima iniezione, dose insulina basale, attività fisica (valore intero che indichi la tipologia (extra)), 
+        # tempo passato dall'attività fisica
         self.observation_space = spaces.Box(low = np.array([...], dtype=np.float32),
                                             high = np.array([...], dtype=np.float32),
                                             dtype = np.float32)
@@ -18,22 +21,58 @@ class Gluco_env(gym.Env):
         self.state = [...] #stato iniziale
         self.rew_arr = []
         self.gluco_arr = []
+        self.last_5_glucolevels = [] #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
     
     def step(self, action):
 
         take_insulin, take_carbo = action
         if not self.filter_invalid_actions(action):
             return self.state, -100, False, False, {}  # Penalità per azioni non valide
-        ... = self.state
+        gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time = self.state
 
-        gluco_level = ... #da calcolare in base all'azione
+        if take_insulin == 1:
+            gluco_level = ...
+        elif take_carbo == 1:
+            gluco_level = ...
         
-        reward = ...
+        if gluco_level < 50:
+            reward = ...
+        elif gluco_level < 70:
+            reward = ...
+        elif gluco_level < 180:
+            reward = ...
+        elif gluco_level < 220:
+            reward = ...
+        elif gluco_level < 250:
+            reward = ...
+        else:
+            reward = ...
+
 
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
+
+        if hour == 24:
+            hour = 1
+        else:
+            hour += 1
+
+        if take_insulin == 1:
+            time_insulin = 0
+        else:
+            time_insulin += 1
+
+        if take_carbo == 1:
+            carbo_time = 0
+        else:
+            carbo_time += 1
+
+        self.last_5_glucolevels = deque(maxlen=5) #tiene solamente gli ultimi 5 valori nell'array
+
+        if hour == 7:     #se l'orario corrisponde alle 7 di mattina registra il valore del glucosio tra quelli più recenti
+            self.last_5_glucolevels.append(gluco_level)
         
-        self.state = ...   #stato aggiornato
+        self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time])   #stato aggiornato
         done = False
         truncated = False
         

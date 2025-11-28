@@ -1,5 +1,6 @@
 import numpy as np
-from env import Gluco_env
+from envJ import Gluco_env
+from envG import Gluco_env2
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
 from stable_baselines3.common.env_checker import check_env
