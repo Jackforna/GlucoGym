@@ -14,11 +14,12 @@ class Gluco_env(gym.Env):
         #Stato: livello glicemia, orario giornata, carboidrati ingeriti, tempo passato dall'ultimo pasto, 
         # insulina presa, tempo passato dall'ultima iniezione, dose insulina basale, attività fisica (valore intero che indichi la tipologia (extra)), 
         # tempo passato dall'attività fisica
-        self.observation_space = spaces.Box(low = np.array([...], dtype=np.float32),
-                                            high = np.array([...], dtype=np.float32),
+        #per l'attività fisica valore intero da 0 (nessuna attività) a 3, in base alla complessità e allo sforzo fisico
+        self.observation_space = spaces.Box(low = np.array([0,0,0,0,0,0,0,0,0], dtype=np.float32),
+                                            high = np.array([400,23,3000,4,25,4,48,3,23], dtype=np.float32),
                                             dtype = np.float32)
 
-        self.state = [...] #stato iniziale
+        self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0] #stato iniziale, 
         self.rew_arr = []
         self.gluco_arr = []
         self.last_5_glucolevels = [] #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
@@ -34,6 +35,8 @@ class Gluco_env(gym.Env):
             gluco_level = ...
         elif take_carbo == 1:
             gluco_level = ...
+        else:
+            ...
         
         if gluco_level < 50:
             reward = ...
@@ -52,8 +55,8 @@ class Gluco_env(gym.Env):
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
 
-        if hour == 24:
-            hour = 1
+        if hour == 23:
+            hour = 0
         else:
             hour += 1
 
@@ -69,7 +72,7 @@ class Gluco_env(gym.Env):
 
         self.last_5_glucolevels = deque(maxlen=5) #tiene solamente gli ultimi 5 valori nell'array
 
-        if hour == 7:     #se l'orario corrisponde alle 7 di mattina registra il valore del glucosio tra quelli più recenti
+        if hour == 6:     #se l'orario corrisponde alle 7 di mattina registra il valore del glucosio tra quelli più recenti
             self.last_5_glucolevels.append(gluco_level)
         
         self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time])   #stato aggiornato
@@ -91,7 +94,7 @@ class Gluco_env(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed = seed)
-        self.state = np.array([...], dtype=np.float32)  #stato iniziale da definire
+        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0], dtype=np.float32)  #stato iniziale da definire
         return self.state,{}
 
 
