@@ -9,7 +9,7 @@ class Gluco_env(gym.Env):
     def __init__(self):
         super(Gluco_env, self).__init__()
 
-        self.action_space = spaces.MultiDiscrete([2,2])  #2 azioni discrete perchè rappresentano scelte finite
+        self.action_space = spaces.MultiDiscrete([24,5])  #2 azioni discrete perchè rappresentano scelte finite
 
         #gli stati invece saranno continui poichè rappresentano grandezze variabili nel tempo
         #Stato: livello glicemia, orario giornata, carboidrati ingeriti, tempo passato dall'ultimo pasto, 
@@ -33,38 +33,27 @@ class Gluco_env(gym.Env):
             return self.state, -100, False, False, {}  # Penalità per azioni non valide
         gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance, insulin_for_meal = self.state
 
-        if take_insulin == 1:
+        if take_insulin != 0:
             time_insulin = 1
-            if carbo != 0:
+            insulin = take_insulin*0.5
+            self.day_insulin.append(insulin)
+
+            '''if carbo != 0:
                 self.day_insulin.append(insulin_for_meal)   #insulina da pasto
             else:
                 unit = round((100 - gluco_level)/max(insulin_resistance, 1e-6) * 2)/2 #deve avere valore intero o da mezza unità
-                self.day_insulin.append(unit)               #insulina correttiva
-        elif take_sugar == 1:
-            gluco_level += random.uniform(20,80)
-            ...
+                self.day_insulin.append(unit)    '''           #insulina correttiva
+        elif take_sugar != 0:
+            gluco_level += random.uniform(30,60) * take_sugar
         else:
             ...
-        
-        '''if gluco_level < 50:
-            reward = -10
-        elif gluco_level < 70:
-            reward = -5
-        elif gluco_level < 180:
-            reward = 10
-        elif gluco_level < 220:
-            reward = 2
-        elif gluco_level < 250:
-            reward = 0
-        else:
-            reward = -5'''
         
         reward = np.exp(-0.5 * ((gluco_level - 110) / 30) ** 2) #funzione gaussiana per il calcolo della reward
 
         if gluco_level<70:  #aggiustamenti per valori esterni all'intervallo ideale
-            reward -= 50
+            reward -= 1
         elif gluco_level >250:
-            reward -= 5
+            reward -= 0.5
 
         #possibilità di un pasto
         if hour>=7 and hour<=9 and carbo_time==0: #colazione
@@ -93,17 +82,25 @@ class Gluco_env(gym.Env):
             carbo_time = 1
             carbo = random.uniform(40,100)
 
+        if insulin > 1.5:
+            insulin_for_meal = insulin
+
         if carbo!=0 and carbo_time==2:      #aumento dei livelli di glucosio un'ora dal pasto(aggiungere aumento graduale nelle ore successive)
             gluco_level += (carbo-70)/10*50 + insulin_for_meal*insulin_resistance
 
             
         carbo_time += 1
 
-        if time_insulin == 2:   #dopo due ore inizia l'effetto dell'insulina(aggiungere diminuzione graduale nelle ore successive)
-            gluco_level -= insulin_for_meal * insulin_resistance
-            gluco_level += random.uniform(-40, 60)
+        if time_insulin == 1:   #dopo due ore inizia l'effetto dell'insulina(aggiungere diminuzione graduale nelle ore successive)
+            gluco_level -= insulin * insulin_resistance/2
+            #gluco_level += random.uniform(-20, 40)
+        elif time_insulin == 2:
+            gluco_level -= insulin * insulin_resistance/2
+        elif time_insulin == 4:
+            time_insulin = 0
+            insulin = 0
 
-        gluco_level = np.clip((gluco_level + random.uniform(-20, 20)), 0 , 400) #valore randomico di aumento o diminuzione della glicemia a digiuno
+        #gluco_level = np.clip((gluco_level + random.uniform(-20, 20)), 0 , 400) #valore randomico di aumento o diminuzione della glicemia a digiuno
 
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
@@ -112,11 +109,6 @@ class Gluco_env(gym.Env):
             hour = 0
         else:
             hour += 1
-
-        if take_insulin == 1:
-            time_insulin = 1
-        else:
-            time_insulin += 1
 
         if carbo_time == 4:
             carbo = 0

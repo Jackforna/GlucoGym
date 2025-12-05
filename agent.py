@@ -13,10 +13,10 @@ def main():
     env = Gluco_env()
     check_env(env, warn=True)
     model = PPO("MlpPolicy", env, verbose=0)
-    model.learn(total_timesteps=50000, progress_bar=ProgressBarCallback())
+    model.learn(total_timesteps=100000, progress_bar=ProgressBarCallback())
     model.save("ppo_model")
 
-    window_size = 50
+    window_size = 100
 
     rewards, gluco_levels = env.get_res() #valori che ritorna l'environment
 
