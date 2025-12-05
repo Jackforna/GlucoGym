@@ -1,19 +1,22 @@
 import numpy as np
 from envJ import Gluco_env
-from envG import Gluco_env2
+#from envG import Gluco_env2
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import ProgressBarCallback
+import os
+os.environ["TQDM_DISABLE_RICH"] = "1"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 def main():
     env = Gluco_env()
     check_env(env, warn=True)
     model = PPO("MlpPolicy", env, verbose=0)
-    model.learn(total_timesteps=20000, progress_bar=ProgressBarCallback())
+    model.learn(total_timesteps=50000, progress_bar=ProgressBarCallback())
     model.save("ppo_model")
 
-    window_size = 20
+    window_size = 50
 
     rewards, gluco_levels = env.get_res() #valori che ritorna l'environment
 
