@@ -122,6 +122,8 @@ class Gluco_env(gym.Env):
         if hour == 0:   # a mezzanotte viene calcolato il valore di un'unità di insulina e viene svuotato l'array relativo all'insulina presa durante la giornata
             insulin_resistance = 1800/(sum(self.day_insulin) + basal)
             self.day_insulin.clear()
+
+        gluco_level = np.clip(gluco_level, 0, 400)
         
         self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance, insulin_for_meal], dtype=np.float32)   #stato aggiornato
         done = False
