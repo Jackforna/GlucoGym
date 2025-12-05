@@ -135,7 +135,7 @@ class Gluco_env(gym.Env):
         take_insulin, take_sugar = action
         
         # Non puoi prendere insulina e prendere zuccheri per correggere un'ipoglicemia allo stesso tempo
-        if take_insulin == 1 and take_sugar == 1:
+        if take_insulin != 0 and take_sugar != 0:
             return False
 
         return True
