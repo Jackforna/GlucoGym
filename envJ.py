@@ -86,6 +86,13 @@ class Gluco_env(gym.Env):
                 carbo = 0
                 carbo_time = 0
 
+        # variazione circadiana, la resistenza insulinica cambia in base all'orario della giornata
+        circadian = [1.2, 1.1, 1.0, 0.9, 0.85, 0.9, 1.0, 1.1, 1.2, 1.25,
+                    1.2, 1.1, 1.0, 0.95, 1.0, 1.1, 1.15, 1.2, 1.15, 1.1,
+                    1.0, 0.95, 0.9, 1.0]
+
+        insulin_resistance = insulin_resistance * circadian[int(hour)]
+
 
         if time_insulin > 0:
             insulin_profile = [0.2, 0.35, 0.30, 0.15]  # distribuzione più realistica
@@ -104,16 +111,32 @@ class Gluco_env(gym.Env):
         if hour == 6:     #se l'orario corrisponde alle 7 di mattina registra il valore del glucosio tra quelli più recenti
             self.last_5_glucolevels.append(gluco_level)
 
+            if len(self.last_5_glucolevels) == 5:
+                avg_morning = np.mean(self.last_5_glucolevels)
+
+                if avg_morning < 90:
+                    basal *= 0.9  # diminuzione 10%
+                elif avg_morning > 140:
+                    basal *= 1.1  # aumento 10%
+
+                # Limiti realistici
+                basal = np.clip(basal, 5, 40)
+
+                self.last_5_glucolevels.clear()
+
         if hour == 0:   # a mezzanotte viene calcolato il valore di un'unità di insulina e viene svuotato l'array relativo all'insulina presa durante la giornata
             insulin_resistance = 1800/(sum(self.day_insulin) + basal)
             self.day_insulin.clear()
 
+        basal_effect = basal * insulin_resistance * 0.01  # effetto insulina basale
+        gluco_level -= basal_effect
+
         gluco_level = np.clip(gluco_level, 0, 400)
 
         
-        reward = np.exp(-0.5 * ((gluco_level - 110) / 25) ** 2) #funzione gaussiana per il calcolo della reward
+        reward = np.exp(-0.5 * ((gluco_level - 110) / 18) ** 2) #funzione gaussiana per il calcolo della reward
 
-        if gluco_level < 70:
+        '''if gluco_level < 70:
             reward -= 5
         if gluco_level < 55:
             reward -= 15
@@ -130,7 +153,17 @@ class Gluco_env(gym.Env):
             reward -= 5
 
         if gluco_level > 250 and take_insulin<1:
-            reward -= 2
+            reward -= 2'''
+        
+        # ipoglicemia: penalità più morbida (evita panico)
+        reward -= max(0, (70 - gluco_level) / 20)
+
+        # iperglicemia
+        reward -= max(0, (gluco_level - 180) / 50)
+
+        # ultra-reward nel range perfetto 90–140
+        if 90 <= gluco_level <= 140:
+            reward += 3
         
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
