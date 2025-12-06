@@ -13,10 +13,10 @@ def main():
     env = Gluco_env()
     check_env(env, warn=True)
     model = PPO("MlpPolicy", env, verbose=0)
-    model.learn(total_timesteps=100000, progress_bar=ProgressBarCallback())
+    model.learn(total_timesteps=1000000, progress_bar=ProgressBarCallback())
     model.save("ppo_model")
 
-    window_size = 100
+    window_size = 1000
 
     rewards, gluco_levels = env.get_res() #valori che ritorna l'environment
 
@@ -25,16 +25,20 @@ def main():
     fig = plt.figure(figsize=(14,10))
     fig.subplots_adjust(hspace=0.5)  # Aggiunge spazio tra i grafici
     plt.subplot(2,1,1)
-    plt.plot(rewards_smooth)
+    plt.plot(rewards, color='blue', alpha=0.15, linewidth=1, label="Rewards (raw)")
+    plt.plot(rewards_smooth, color='blue', linewidth=2.5, label="Rewards (smoothed)")
     plt.title("Rewards")
     plt.xlabel("Time (steps)")
     plt.ylabel("Reward value")
     plt.grid(True)
     plt.legend()
 
+    gluco_smooth = np.convolve(gluco_levels, np.ones(window_size)/window_size, mode='valid')
+
     # Curva glicemia
     plt.subplot(2,1,2)
-    plt.plot(gluco_levels)
+    plt.plot(gluco_levels, color='blue', alpha=0.15, linewidth=1, label="Glucose (raw)")
+    plt.plot(gluco_smooth, color='blue', linewidth=2.5, label="Glucose (smoothed)")
     plt.ylim(0, 400)  # Limiti asse Y
     plt.axhspan(70, 180, color="green", alpha=0.15) # Zona verde (70–180 mg/dL)
     plt.axhline(70, color="red", linestyle="--", linewidth=1)

@@ -14,57 +14,43 @@ class Gluco_env(gym.Env):
         #gli stati invece saranno continui poichè rappresentano grandezze variabili nel tempo
         #Stato: livello glicemia, orario giornata, carboidrati ingeriti, tempo passato dall'ultimo pasto, 
         # insulina presa, tempo passato dall'ultima iniezione, dose insulina basale, attività fisica (valore intero che indichi la tipologia (extra)), 
-        # tempo passato dall'attività fisica, valore unità insulinica-glicemia, unità insulina per pasto
+        # tempo passato dall'attività fisica, valore unità insulinica-glicemia
         #per l'attività fisica valore intero da 0 (nessuna attività) a 3, in base alla complessità e allo sforzo fisico
-        self.observation_space = spaces.Box(low = np.array([0,0,0,0,0,0,0,0,0,15,0], dtype=np.float32),
-                                            high = np.array([400,23,3000,4,25,4,48,3,23,200,25], dtype=np.float32),
+        self.observation_space = spaces.Box(low = np.array([0,0,0,0,0,0,0,0,0,10], dtype=np.float32),
+                                            high = np.array([400,23,300,4,20,4,48,3,23,200], dtype=np.float32),
                                             dtype = np.float32)
 
-        self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0, 180, 2] #stato iniziale, 
+        self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0, 50] #stato iniziale, 
         self.rew_arr = []
         self.gluco_arr = []
-        self.last_5_glucolevels = [] #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
+        self.last_5_glucolevels = deque(maxlen=5) #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
         self.day_insulin = []
     
     def step(self, action):
 
         take_insulin, take_sugar = action
+
         if not self.filter_invalid_actions(action):
             return self.state, -100, False, False, {}  # Penalità per azioni non valide
-        gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance, insulin_for_meal = self.state
+        gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance = self.state
 
         if take_insulin != 0:
             time_insulin = 1
             insulin = take_insulin*0.5
             self.day_insulin.append(insulin)
-
-            '''if carbo != 0:
-                self.day_insulin.append(insulin_for_meal)   #insulina da pasto
-            else:
-                unit = round((100 - gluco_level)/max(insulin_resistance, 1e-6) * 2)/2 #deve avere valore intero o da mezza unità
-                self.day_insulin.append(unit)    '''           #insulina correttiva
-        elif take_sugar != 0:
-            gluco_level += random.uniform(30,60) * take_sugar
-        else:
-            ...
-        
-        reward = np.exp(-0.5 * ((gluco_level - 110) / 30) ** 2) #funzione gaussiana per il calcolo della reward
-
-        if gluco_level<70:  #aggiustamenti per valori esterni all'intervallo ideale
-            reward -= 1
-        elif gluco_level >250:
-            reward -= 0.5
+        if take_sugar != 0:
+            gluco_level += 36 * take_sugar
 
         #possibilità di un pasto
         if hour>=7 and hour<=9 and carbo_time==0: #colazione
-            x = random.uniform(0,1)
-            if x==1:
+            x = random.random()
+            if x>0.4:
                 carbo_time = 1
                 carbo = random.uniform(40,80)
         
         if hour>11 and hour<15 and carbo_time==0: #pranzo
-            x = random.uniform(0,1)
-            if x==1:
+            x = random.random()
+            if x>0.4:
                 carbo_time = 1
                 carbo = random.uniform(60,100)
 
@@ -73,8 +59,8 @@ class Gluco_env(gym.Env):
             carbo = random.uniform(60,100)
 
         if hour>19 and hour<23 and carbo_time==0: #cena
-            x = random.uniform(0,1)
-            if x==1:
+            x = random.random()
+            if x>0.4:
                 carbo_time = 1
                 carbo = random.uniform(40,100)
 
@@ -82,39 +68,38 @@ class Gluco_env(gym.Env):
             carbo_time = 1
             carbo = random.uniform(40,100)
 
-        if insulin > 1.5:
-            insulin_for_meal = insulin
+        #aumento glicemia in base ai pasti
 
-        if carbo!=0 and carbo_time==2:      #aumento dei livelli di glucosio un'ora dal pasto(aggiungere aumento graduale nelle ore successive)
-            gluco_level += (carbo-70)/10*50 + insulin_for_meal*insulin_resistance
+        if carbo > 0:
+            if carbo_time == 1:
+                gluco_level += 0.4 * carbo
+            elif carbo_time == 2:
+                gluco_level += 0.3 * carbo
+            elif carbo_time == 3:
+                gluco_level += 0.2 * carbo
+            elif carbo_time == 4:
+                gluco_level += 0.1 * carbo
 
-            
-        carbo_time += 1
+            carbo_time += 1
 
-        if time_insulin == 1:   #dopo due ore inizia l'effetto dell'insulina(aggiungere diminuzione graduale nelle ore successive)
-            gluco_level -= insulin * insulin_resistance/2
-            #gluco_level += random.uniform(-20, 40)
-        elif time_insulin == 2:
-            gluco_level -= insulin * insulin_resistance/2
-        elif time_insulin == 4:
-            time_insulin = 0
-            insulin = 0
+            if carbo_time > 4:
+                carbo = 0
+                carbo_time = 0
 
-        #gluco_level = np.clip((gluco_level + random.uniform(-20, 20)), 0 , 400) #valore randomico di aumento o diminuzione della glicemia a digiuno
 
-        self.rew_arr.append(reward)
-        self.gluco_arr.append(gluco_level)
+        if time_insulin > 0:
+            insulin_profile = [0.2, 0.35, 0.30, 0.15]  # distribuzione più realistica
+            if 1 <= time_insulin <= 4:
+                idx = int(time_insulin) - 1
+                gluco_level -= insulin * insulin_resistance * insulin_profile[idx - 1]
+            time_insulin += 1
+            if time_insulin > 4:
+                insulin = 0
+                time_insulin = 0
 
-        if hour == 23:
-            hour = 0
-        else:
-            hour += 1
+        gluco_level = gluco_level + random.uniform(-10, 10) #valore randomico di aumento o diminuzione della glicemia a digiuno
 
-        if carbo_time == 4:
-            carbo = 0
-            carbo_time = 0
-
-        self.last_5_glucolevels = deque(maxlen=5) #tiene solamente gli ultimi 5 valori nell'array
+        hour = (hour+1)%24
 
         if hour == 6:     #se l'orario corrisponde alle 7 di mattina registra il valore del glucosio tra quelli più recenti
             self.last_5_glucolevels.append(gluco_level)
@@ -124,8 +109,33 @@ class Gluco_env(gym.Env):
             self.day_insulin.clear()
 
         gluco_level = np.clip(gluco_level, 0, 400)
+
         
-        self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance, insulin_for_meal], dtype=np.float32)   #stato aggiornato
+        reward = np.exp(-0.5 * ((gluco_level - 110) / 25) ** 2) #funzione gaussiana per il calcolo della reward
+
+        if gluco_level < 70:
+            reward -= 1.5
+        if gluco_level < 55:
+            reward -= 3
+        if gluco_level < 30:
+            reward -= 10
+        if gluco_level > 250:
+            reward -= 1
+        if gluco_level > 300:
+            reward -= 2
+        if gluco_level > 85 and gluco_level < 160:
+            reward += 10
+
+        if gluco_level > 100 and take_sugar>0:
+            reward -= 5
+
+        if gluco_level > 250 and take_insulin<1:
+            reward -= 2
+        
+        self.rew_arr.append(reward)
+        self.gluco_arr.append(gluco_level)
+        
+        self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32)   #stato aggiornato
         done = False
         truncated = False
         
@@ -144,7 +154,7 @@ class Gluco_env(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed = seed)
-        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0, 180, 1.5], dtype=np.float32)  #stato iniziale da definire
+        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0, 180], dtype=np.float32)  #stato iniziale da definire
         return self.state,{}
 
 
