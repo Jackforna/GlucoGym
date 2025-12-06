@@ -70,15 +70,15 @@ class Gluco_env(gym.Env):
 
         #aumento glicemia in base ai pasti
 
-        if carbo > 0:
-            if carbo_time == 1:
-                gluco_level += 0.4 * carbo
+        if carbo > 0: #da migliorare
+            if carbo_time == 1: #4 mg/dL per grammo di carboidrati
+                gluco_level += 0.1 * carbo * 4
             elif carbo_time == 2:
-                gluco_level += 0.3 * carbo
+                gluco_level += 0.35 * carbo * 4
             elif carbo_time == 3:
-                gluco_level += 0.2 * carbo
+                gluco_level += 0.35 * carbo * 4
             elif carbo_time == 4:
-                gluco_level += 0.1 * carbo
+                gluco_level += 0.2 * carbo * 4
 
             carbo_time += 1
 
@@ -91,7 +91,7 @@ class Gluco_env(gym.Env):
             insulin_profile = [0.2, 0.35, 0.30, 0.15]  # distribuzione più realistica
             if 1 <= time_insulin <= 4:
                 idx = int(time_insulin) - 1
-                gluco_level -= insulin * insulin_resistance * insulin_profile[idx - 1]
+                gluco_level -= insulin * insulin_resistance * insulin_profile[idx]
             time_insulin += 1
             if time_insulin > 4:
                 insulin = 0
@@ -114,15 +114,15 @@ class Gluco_env(gym.Env):
         reward = np.exp(-0.5 * ((gluco_level - 110) / 25) ** 2) #funzione gaussiana per il calcolo della reward
 
         if gluco_level < 70:
-            reward -= 1.5
+            reward -= 5
         if gluco_level < 55:
-            reward -= 3
+            reward -= 15
         if gluco_level < 30:
-            reward -= 10
+            reward -= 100
         if gluco_level > 250:
-            reward -= 1
+            reward -= 15
         if gluco_level > 300:
-            reward -= 2
+            reward -= 50
         if gluco_level > 85 and gluco_level < 160:
             reward += 10
 
