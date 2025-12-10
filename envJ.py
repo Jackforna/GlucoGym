@@ -17,7 +17,7 @@ class Gluco_env(gym.Env):
         # tempo passato dall'attività fisica, valore unità insulinica-glicemia
         #per l'attività fisica valore intero da 0 (nessuna attività) a 3, in base alla complessità e allo sforzo fisico
         self.observation_space = spaces.Box(low = np.array([0,0,0,0,0,0,0,0,0,10], dtype=np.float32),
-                                            high = np.array([400,23,300,4,20,4,48,3,23,200], dtype=np.float32),
+                                            high = np.array([400,23,300,4,20,4,48,3,23,300], dtype=np.float32),
                                             dtype = np.float32)
 
         self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0, 50] #stato iniziale, 
@@ -115,9 +115,9 @@ class Gluco_env(gym.Env):
                 avg_morning = np.mean(self.last_5_glucolevels)
 
                 if avg_morning < 90:
-                    basal *= 0.9  # diminuzione 10%
+                    basal -= 2  # diminuzione 10%
                 elif avg_morning > 140:
-                    basal *= 1.1  # aumento 10%
+                    basal += 2  # aumento 10%
 
                 # Limiti realistici
                 basal = np.clip(basal, 5, 40)
@@ -135,40 +135,32 @@ class Gluco_env(gym.Env):
 
         
         reward = np.exp(-0.5 * ((gluco_level - 110) / 18) ** 2) #funzione gaussiana per il calcolo della reward
-
-        '''if gluco_level < 70:
-            reward -= 5
-        if gluco_level < 55:
-            reward -= 15
-        if gluco_level < 30:
-            reward -= 100
-        if gluco_level > 250:
-            reward -= 15
-        if gluco_level > 300:
-            reward -= 50
-        if gluco_level > 85 and gluco_level < 160:
-            reward += 10
-
-        if gluco_level > 100 and take_sugar>0:
-            reward -= 5
-
-        if gluco_level > 250 and take_insulin<1:
-            reward -= 2'''
         
         # ipoglicemia: penalità più morbida (evita panico)
         reward -= max(0, (70 - gluco_level) / 20)
 
         # iperglicemia
         reward -= max(0, (gluco_level - 180) / 50)
-
-        # ultra-reward nel range perfetto 90–140
-        if 90 <= gluco_level <= 140:
-            reward += 3
         
+        if gluco_level < 110 and take_insulin > 0:
+            reward -= 15
+        
+        
+
+        if 90 <= gluco_level <= 140:
+            reward += 10
+        elif 70 <= gluco_level <= 89 or 141 <= gluco_level <= 180:
+            reward += 5
+        elif gluco_level < 70 or gluco_level > 250:
+            reward -= 2
+        elif gluco_level < 55 or gluco_level > 300:
+            reward -= 5
+
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
         
         self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32)   #stato aggiornato
+        
         done = False
         truncated = False
         

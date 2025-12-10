@@ -21,10 +21,12 @@ for t in range(24):
 
     gluco = obs[0]
     hour = int(obs[1])
+    carbo = obs[2]
+    insulin = obs[4]
 
     glucose_history.append(gluco)
     hour_history.append(hour)
 
-    print(f"Step {t:2d} | Hour: {hour:2d} | Glucose: {gluco:6.1f} mg/dL | Reward: {reward:.3f} | Action: {action}")
+    print(f"Step {t:2d} | Hour: {hour:2d} | Glucose: {gluco:6.1f} mg/dL | Carbo: {carbo:6.1f} g | Insulin {insulin:6.1f} | Reward: {reward:.3f} | Action: {action}")
 
 print("\nTest completato.")
