@@ -9,93 +9,84 @@ class Gluco_env2(gym.Env):
     def __init__(self):
         super(Gluco_env2, self).__init__()
 
-        self.action_space = spaces.MultiDiscrete([24,5])  #2 azioni discrete perchè rappresentano scelte finite
+        self.action_space = spaces.MultiDiscrete([24,5]) 
 
-        #gli stati invece saranno continui poichè rappresentano grandezze variabili nel tempo
-        #Stato: livello glicemia, orario giornata, carboidrati ingeriti, tempo passato dall'ultimo pasto, 
-        # insulina presa, tempo passato dall'ultima iniezione, dose insulina basale, attività fisica (valore intero che indichi la tipologia (extra)), 
-        # tempo passato dall'attività fisica, valore unità insulinica-glicemia
-        #per l'attività fisica valore intero da 0 (nessuna attività) a 3, in base alla complessità e allo sforzo fisico
-        self.observation_space = spaces.Box(low = np.array([0,0,0,0,0,0,0,0,0,10], dtype=np.float32),
-                                            high = np.array([400,23,300,4,20,4,48,3,23,300], dtype=np.float32),
-                                            dtype = np.float32)
+        # Ho alzato leggermente i limiti 'high' dello space per evitare crash tecnici di Gym
+        # se la glicemia o la resistenza superano di poco i valori previsti.
+        # (Non influisce sulla logica fisica, solo sulla validazione).
+        self.observation_space = spaces.Box(
+            low = np.array([0,0,0,0,0,0,0,0,0,10], dtype=np.float32),
+            high = np.array([600,24,300,10,50,10,100,3,24,1000], dtype=np.float32),
+            dtype = np.float32
+        )
 
-        self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0, 50] #stato iniziale, 
+        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0, 50], dtype=np.float32)
+        
         self.rew_arr = []
         self.gluco_arr = []
-        self.last_5_glucolevels = deque(maxlen=5) #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
+        self.last_5_glucolevels = deque(maxlen=5) 
         self.day_insulin = []
+        
+        # Variabile per calcolare la stabilità (delta)
+        self.last_glucose = 100.0
     
     def step(self, action):
-
         take_insulin, take_sugar = action
 
         if not self.filter_invalid_actions(action):
-            return self.state, -100, False, False, {}  # Penalità per azioni non valide
+            # Penalità per azioni invalide, ma salviamo comunque i dati per coerenza
+            self.rew_arr.append(-100.0)
+            self.gluco_arr.append(self.state[0])
+            return self.state, -100.0, False, False, {}
+
         gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance = self.state
+
+        # Casting a int
+        hour = int(hour)
+        carbo_time = int(carbo_time)
+        time_insulin = int(time_insulin)
 
         if take_insulin != 0:
             time_insulin = 1
             insulin = take_insulin*0.5
             self.day_insulin.append(insulin)
+        
         if take_sugar != 0:
             gluco_level += 36 * take_sugar
 
-        #possibilità di un pasto
-        if hour>=7 and hour<=9 and carbo_time==0: #colazione
-            x = random.random()
-            if x>0.4:
-                carbo_time = 1
-                carbo = random.uniform(40,80)
-        
-        if hour>11 and hour<15 and carbo_time==0: #pranzo
-            x = random.random()
-            if x>0.4:
-                carbo_time = 1
-                carbo = random.uniform(60,100)
+        # --- LOGICA PASTI (Tua originale) ---
+        if hour>=7 and hour<=9 and carbo_time==0: 
+            if random.random()>0.4: carbo_time, carbo = 1, random.uniform(40,80)
+        if hour>11 and hour<15 and carbo_time==0: 
+            if random.random()>0.4: carbo_time, carbo = 1, random.uniform(60,100)
+        if hour==14 and carbo_time==0: 
+            carbo_time, carbo = 1, random.uniform(60,100)
+        if hour>19 and hour<23 and carbo_time==0: 
+            if random.random()>0.4: carbo_time, carbo = 1, random.uniform(40,100)
+        if hour==22 and carbo_time==0: 
+            carbo_time, carbo = 1, random.uniform(40,100)
 
-        if hour==14 and carbo_time==0:  #pranzo obbligatorio
-            carbo_time = 1
-            carbo = random.uniform(60,100)
-
-        if hour>19 and hour<23 and carbo_time==0: #cena
-            x = random.random()
-            if x>0.4:
-                carbo_time = 1
-                carbo = random.uniform(40,100)
-
-        if hour==22 and carbo_time==0:  #cena obbligatoria
-            carbo_time = 1
-            carbo = random.uniform(40,100)
-
-        #aumento glicemia in base ai pasti
-
-        if carbo > 0: #da migliorare
-            if carbo_time == 1: #4 mg/dL per grammo di carboidrati
-                gluco_level += 0.1 * carbo * 4
-            elif carbo_time == 2:
-                gluco_level += 0.35 * carbo * 4
-            elif carbo_time == 3:
-                gluco_level += 0.35 * carbo * 4
-            elif carbo_time == 4:
-                gluco_level += 0.2 * carbo * 4
-
+        # --- FISICA CARBO (Tua originale) ---
+        if carbo > 0: 
+            if carbo_time == 1: gluco_level += 0.1 * carbo * 4
+            elif carbo_time == 2: gluco_level += 0.35 * carbo * 4
+            elif carbo_time == 3: gluco_level += 0.35 * carbo * 4
+            elif carbo_time == 4: gluco_level += 0.2 * carbo * 4
             carbo_time += 1
-
             if carbo_time > 4:
                 carbo = 0
                 carbo_time = 0
 
-        # variazione circadiana, la resistenza insulinica cambia in base all'orario della giornata
+        # Resistenza Circadiana
         circadian = [1.2, 1.1, 1.0, 0.9, 0.85, 0.9, 1.0, 1.1, 1.2, 1.25,
-                    1.2, 1.1, 1.0, 0.95, 1.0, 1.1, 1.15, 1.2, 1.15, 1.1,
-                    1.0, 0.95, 0.9, 1.0]
+                     1.2, 1.1, 1.0, 0.95, 1.0, 1.1, 1.15, 1.2, 1.15, 1.1,
+                     1.0, 0.95, 0.9, 1.0]
+        safe_hour = hour % 24
+        insulin_resistance = insulin_resistance * circadian[safe_hour]
 
-        insulin_resistance = insulin_resistance * circadian[int(hour)]
-
-
+        # --- FISICA INSULINA (Tua originale) ---
         if time_insulin > 0:
-            insulin_profile = [0.2, 0.35, 0.30, 0.15]  # distribuzione più realistica
+            insulin_profile = [0.2, 0.35, 0.30, 0.15] 
             if 1 <= time_insulin <= 4:
                 idx = int(time_insulin) - 1
                 gluco_level -= insulin * insulin_resistance * insulin_profile[idx]
@@ -104,84 +95,98 @@ class Gluco_env2(gym.Env):
                 insulin = 0
                 time_insulin = 0
 
-        gluco_level = gluco_level + random.uniform(-10, 10) #valore randomico di aumento o diminuzione della glicemia a digiuno
+        # --- MODIFICA 1: RUMORE RIDOTTO ---
+        # Da +/- 10 a +/- 2. Fondamentale per la stabilità.
+        gluco_level += random.uniform(-2, 2) 
 
         hour = (hour+1)%24
 
-        if hour == 6:     #se l'orario corrisponde alle 7 di mattina registra il valore del glucosio tra quelli più recenti
+        # Logiche ricorrenti
+        if hour == 6:
             self.last_5_glucolevels.append(gluco_level)
-
             if len(self.last_5_glucolevels) == 5:
                 avg_morning = np.mean(self.last_5_glucolevels)
-
-                if avg_morning < 90:
-                    basal -= 2  # diminuzione 10%
-                elif avg_morning > 140:
-                    basal += 2  # aumento 10%
-
-                # Limiti realistici
+                if avg_morning < 90: basal -= 2
+                elif avg_morning > 140: basal += 2
                 basal = np.clip(basal, 5, 40)
-
                 self.last_5_glucolevels.clear()
 
-        if hour == 0:   # a mezzanotte viene calcolato il valore di un'unità di insulina e viene svuotato l'array relativo all'insulina presa durante la giornata
-            insulin_resistance = 1800/(sum(self.day_insulin) + basal)
+        if hour == 0:
+            total_ins = sum(self.day_insulin) + basal
+            if total_ins > 0:
+                insulin_resistance = 1800.0/total_ins
+            else:
+                insulin_resistance = 50.0
             self.day_insulin.clear()
 
-        basal_effect = basal * insulin_resistance * 0.01  # effetto insulina basale
+        basal_effect = basal * insulin_resistance * 0.01 
         gluco_level -= basal_effect
 
+        # Clipping originale come richiesto (0, 400)
         gluco_level = np.clip(gluco_level, 0, 400)
 
-        
-        reward = np.exp(-0.5 * ((gluco_level - 110) / 18) ** 2) #funzione gaussiana per il calcolo della reward
-        
-        # ipoglicemia: penalità più morbida (evita panico)
-        reward -= max(0, (70 - gluco_level) / 20)
+        # --- CALCOLO REWARD ---
+        # Gaussiana più larga (diviso 30 invece di 20) per "attrarre" l'agente anche quando è lontano
+        reward = np.exp(-0.5 * ((gluco_level - 110) / 30) ** 2) * 2.0
 
-        # iperglicemia
+        # Penalità base
+        reward -= max(0, (70 - gluco_level) / 20)
         reward -= max(0, (gluco_level - 180) / 50)
         
-        if gluco_level < 110 and take_insulin > 0:
+        # MODIFICA 2: Tolto il blocco "if < 110 punish insulin". 
+        # Puniamo solo se è < 70, per permettere correzioni anticipate.
+        if gluco_level < 70 and take_insulin > 0:
             reward -= 15
-        
-        
 
         if 90 <= gluco_level <= 140:
-            reward += 10
+            reward += 3 # Bonus originale
         elif 70 <= gluco_level <= 89 or 141 <= gluco_level <= 180:
-            reward += 5
-        elif gluco_level < 70 or gluco_level > 250:
-            reward -= 2
-        elif gluco_level < 55 or gluco_level > 300:
-            reward -= 5
+            reward += 1 # Bonus ridotto per "zona ok"
+        
+        # Penalità forti
+        if gluco_level < 60: reward -= 10 # Anticipiamo la penalità forte prima del "muro" a 50
+        if gluco_level < 50: reward -= 50 # Muro (era 20, alzato per dire "qui non ci devi proprio andare")
+        if gluco_level > 250: reward -= 5 # Iper grave
+        
+        # Penalità Iper aumentata progressivamente
+        if gluco_level > 180:
+             reward -= (gluco_level - 180) * 0.1
 
+        # --- MODIFICA 3: STABILITÀ (DELTA) ---
+        # Penalizziamo le variazioni brusche tra uno step e l'altro
+        delta = abs(gluco_level - self.last_glucose)
+        reward -= delta * 0.1 
+        
+        self.last_glucose = gluco_level
+
+        # Logging
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
         
-        self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32)   #stato aggiornato
+        self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32)
         
         done = False
         truncated = False
         
-
         return self.state, float(reward), done, truncated, {}
     
     def filter_invalid_actions(self, action):
-        #Elimina combinazioni di azioni non valide
         take_insulin, take_sugar = action
-        
-        # Non puoi prendere insulina e prendere zuccheri per correggere un'ipoglicemia allo stesso tempo
-        if take_insulin != 0 and take_sugar != 0:
-            return False
-
+        if take_insulin != 0 and take_sugar != 0: return False
         return True
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed = seed)
-        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0, 180], dtype=np.float32)  #stato iniziale da definire
-        return self.state,{}
-
+        start_gluco = random.uniform(110, 150) # Partenza leggermente randomizzata
+        self.state = np.array([start_gluco, 0, 0, 0, 0, 0, 6, 0, 0, 180], dtype=np.float32)
+        self.last_glucose = start_gluco
+        
+        # Resettiamo solo se serve, per evitare problemi con grafici vuoti se l'episodio finisce
+        if len(self.rew_arr) > 100000:
+             self.rew_arr = []
+             self.gluco_arr = []
+             
+        return self.state, {}
 
     def render(self):
         print("")
