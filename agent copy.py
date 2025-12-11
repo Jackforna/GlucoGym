@@ -1,7 +1,6 @@
 import numpy as np
 #from envJ import Gluco_env
-#from envG import Gluco_env2
-from envIRL import Gluco_envIRL
+from envG import Gluco_env2
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
 from stable_baselines3.common.env_checker import check_env
@@ -11,13 +10,10 @@ os.environ["TQDM_DISABLE_RICH"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 def main():
-    env = Gluco_envIRL()
+    env = Gluco_env2()
     check_env(env, warn=True)
-
-    env.train_irl() #solo se si usa l'IRL
-    '''
     model = PPO("MlpPolicy", env, verbose=0)
-    model.learn(total_timesteps=300000, progress_bar=ProgressBarCallback())
+    model.learn(total_timesteps=100000, progress_bar=ProgressBarCallback())
     model.save("ppo_model")
 
     window_size = 300
@@ -56,7 +52,7 @@ def main():
 
     plt.show()
     env.close()
-    '''
+
 
 if __name__ == "__main__":
     main()
