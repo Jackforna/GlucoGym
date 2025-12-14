@@ -16,7 +16,7 @@ def main():
     model.learn(total_timesteps=100000, progress_bar=ProgressBarCallback())
     model.save("ppo_model")
 
-    window_size = 300
+    window_size = 100
 
     rewards, gluco_levels = env.get_res() #valori che ritorna l'environment
 
