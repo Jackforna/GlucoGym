@@ -14,19 +14,24 @@ print("\n--- Test di una giornata (24 step) ---")
 
 glucose_history = []
 hour_history = []
+prec_hour = -1
+i = 0
 
-for t in range(24):
+for t in range(288):
     action, _ = model.predict(obs, deterministic=True)
     obs, reward, done, trunc, info = env_test.step(action)
 
     gluco = obs[0]
     hour = int(obs[1])
+    minutes = hour * 5
+    hour = int(minutes / 60)
+    minutes -= hour * 60
     carbo = obs[2]
     insulin = obs[4]
 
     glucose_history.append(gluco)
     hour_history.append(hour)
 
-    print(f"Step {t:2d} | Hour: {hour:2d} | Glucose: {gluco:6.1f} mg/dL | Carbo: {carbo:6.1f} g | Insulin {insulin:6.1f} | Reward: {reward:.3f} | Action: {action}")
+    print(f"Step {t:2d} | Hour: {hour:2d}:{minutes:2d} | Glucose: {gluco:6.1f} mg/dL | Carbo: {carbo:6.1f} g | Insulin {insulin:6.1f} | Reward: {reward:.3f} | Action: {action}")
 
 print("\nTest completato.")

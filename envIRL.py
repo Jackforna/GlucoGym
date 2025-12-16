@@ -30,19 +30,22 @@ class Gluco_envIRL(gym.Env):
         self.edges_sport_t = np.array([0,2,6,24])
         self.edges_IR      = np.array([10,20,50,100,180,300])
 
-        self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0, 180] #stato iniziale, 
+        self.state = [100, 0, 0, 0, 0, 0, 6, 0, 0, 90] #stato iniziale, 
         self.rew_arr = []
         self.gluco_arr = []
         self.last_5_glucolevels = deque(maxlen=5) #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
-        self.day_insulin = []
+        self.day_insulin = 0
         self.learned_rewards = {}
-        self.loaded_trajectories = self.load_expert_trajectories()
+        #self.loaded_trajectories = self.load_expert_trajectories()
+        #self.save_expert_trajectories(self.loaded_trajectories)
+        self.loaded_trajectories = []
         self.len_episodes = 5000
-        self.ranges = [0, 0, 0, 0]
+        self.ranges = [0, 0, 0, 0, 0]
+        self.sugar_first = False
 
     def discretize_state(self, state):
-        # state = [gluco, hour, carbs, carbo_time, insulin, time_insulin, basal, sport, sport_time, IR]
         gluco, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, ins_res = state
+        
         coords = [
             np.digitize(gluco, self.edges_glucose) - 1,
             int(hour),
@@ -119,37 +122,28 @@ class Gluco_envIRL(gym.Env):
         gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance = self.state
 
         if take_insulin != 0:
-            time_insulin = 1
             insulin = take_insulin*0.5
-            self.day_insulin.append(insulin)
+            self.day_insulin += take_insulin * 0.5
         if take_sugar != 0:
             gluco_level += 36 * take_sugar
 
         #possibilità di un pasto
         if hour>=7 and hour<=9 and carbo_time==0: #colazione
-            x = random.random()
-            if x>0.4:
-                carbo_time = 1
+            if random.random() > 0.4:
                 carbo = random.uniform(40,80)
         
         if hour>11 and hour<15 and carbo_time==0: #pranzo
-            x = random.random()
-            if x>0.4:
-                carbo_time = 1
+            if random.random() > 0.4:
                 carbo = random.uniform(60,100)
 
         if hour==14 and carbo_time==0:  #pranzo obbligatorio
-            carbo_time = 1
             carbo = random.uniform(60,100)
 
         if hour>19 and hour<23 and carbo_time==0: #cena
-            x = random.random()
-            if x>0.4:
-                carbo_time = 1
+            if random.random() > 0.4:
                 carbo = random.uniform(40,100)
 
         if hour==22 and carbo_time==0:  #cena obbligatoria
-            carbo_time = 1
             carbo = random.uniform(40,100)
 
         #aumento glicemia in base ai pasti
@@ -188,7 +182,7 @@ class Gluco_envIRL(gym.Env):
                 insulin = 0
                 time_insulin = 0
 
-        gluco_level = gluco_level + random.uniform(-10, 10) #valore randomico di aumento o diminuzione della glicemia a digiuno
+        gluco_level = gluco_level + random.uniform(0, 10) #valore randomico di aumento o diminuzione della glicemia a digiuno
 
         hour = (hour+1)%24
 
@@ -209,8 +203,8 @@ class Gluco_envIRL(gym.Env):
                 self.last_5_glucolevels.clear()
 
         if hour == 0:   # a mezzanotte viene calcolato il valore di un'unità di insulina e viene svuotato l'array relativo all'insulina presa durante la giornata
-            insulin_resistance = 1800/(sum(self.day_insulin) + basal)
-            self.day_insulin.clear()
+            insulin_resistance = 1800/(self.day_insulin + basal)
+            self.day_insulin = 0
 
         basal_effect = basal * insulin_resistance * 0.01  # effetto insulina basale
         gluco_level -= basal_effect
@@ -218,7 +212,7 @@ class Gluco_envIRL(gym.Env):
         gluco_level = np.clip(gluco_level, 0, 400)
 
         state_tuple = self.discretize_state(np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32))
-        reward = self.learned_rewards.get((state_tuple), -10)
+        reward = self.learned_rewards.get((state_tuple[0]), -10)
         self.rew_arr.append(reward)
         self.gluco_arr.append(gluco_level)
         
@@ -234,34 +228,38 @@ class Gluco_envIRL(gym.Env):
 
         if not self.filter_invalid_actions(action):
             return self.state, -100, False, False, {}  # Penalità per azioni non valide
+        
         gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance = self.state
 
         if take_insulin != 0:
             insulin += take_insulin*0.5
-            self.day_insulin.append(take_insulin * 0.5)
+            self.day_insulin += take_insulin * 0.5
         if take_sugar != 0:
             gluco_level += 36 * take_sugar
+            self.sugar_first = True
+        else:
+            self.sugar_first = False
 
         #possibilità di un pasto
         if hour>=7 and hour<=9 and carbo_time==0: #colazione
-            x = random.random()
-            if x>0.4:
+            if random.random() > 0.4:
                 carbo = int(random.uniform(40,80))
+
+        if hour==9 and carbo_time==0:  #colazione obbligatorio
+            carbo = int(random.uniform(40,80))
         
         if hour>=11 and hour<14 and carbo_time==0: #pranzo
-            x = random.random()
-            if x>0.4:
+            if random.random() > 0.4:
                 carbo = int(random.uniform(60,100))
 
         if hour==13 and carbo_time==0:  #pranzo obbligatorio
             carbo = int(random.uniform(60,100))
 
-        if hour>=19 and hour<22 and carbo_time==0: #cena
-            x = random.random()
-            if x>0.4:
+        if hour>=20 and hour<=22 and carbo_time==0: #cena
+            if random.random() > 0.4:
                 carbo = int(random.uniform(40,100))
 
-        if hour==21 and carbo_time==0:  #cena obbligatoria
+        if hour==22 and carbo_time==0:  #cena obbligatoria
             carbo = int(random.uniform(40,100))
 
         #aumento glicemia in base ai pasti
@@ -291,7 +289,7 @@ class Gluco_envIRL(gym.Env):
 
 
         if insulin > 0:
-            insulin_profile = [0.35, 0.35, 0.2, 0.1]  # distribuzione più realistica
+            insulin_profile = [0.2, 0.35, 0.3, 0.15]  # distribuzione più realistica
             if 1 <= time_insulin <= 4:
                 idx = int(time_insulin) - 1
                 gluco_level -= insulin * insulin_resistance_t * insulin_profile[idx]
@@ -321,9 +319,8 @@ class Gluco_envIRL(gym.Env):
                 self.last_5_glucolevels.clear()
 
         if hour == 0:   # a mezzanotte viene calcolato il valore di un'unità di insulina e viene svuotato l'array relativo all'insulina presa durante la giornata
-            insulin_resistance = int(max((1800/(sum(self.day_insulin) + basal)), 10))
-            
-            self.day_insulin.clear()
+            insulin_resistance = int(max((1800/(self.day_insulin + basal+1e-6)), 10))
+            self.day_insulin = 0
 
         basal_effect = basal * insulin_resistance_t * 0.005  # effetto insulina basale
         gluco_level -= basal_effect
@@ -332,18 +329,19 @@ class Gluco_envIRL(gym.Env):
 
         self.state = np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32)   #stato aggiornato
 
-        if self.state[0] < 70:
+        if self.state[0] < 55:
             self.ranges[0] += 1
-        elif self.state[0] < 180:
+        if self.state[0] < 70:
             self.ranges[1] += 1
-        elif self.state[0] < 220:
+        elif self.state[0] < 180:
             self.ranges[2] += 1
-        else:
+        elif self.state[0] < 220:
             self.ranges[3] += 1
+        else:
+            self.ranges[4] += 1
 
-        #state_tuple = self.discretize_state(np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32))
-        #reward = self.learned_rewards.get((state_tuple), -10)
-        reward = 0
+        state_tuple = self.discretize_state(np.array([gluco_level, hour, carbo, carbo_time, insulin, time_insulin, basal, sport, sport_time, insulin_resistance], dtype=np.float32))
+        reward = self.learned_rewards.get((state_tuple[0]), -10)
 
         done = False
         truncated = False
@@ -352,7 +350,7 @@ class Gluco_envIRL(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed = seed)
-        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0, 180], dtype=np.float32)  #stato iniziale da definire
+        self.state = np.array([100, 0, 0, 0, 0, 0, 6, 0, 0, 90], dtype=np.float32)  #stato iniziale da definire
         return self.state,{}
 
     def get_res(self):
@@ -366,26 +364,28 @@ class Gluco_envIRL(gym.Env):
         
         action = [0,0]
 
-        if gluco_level < 30:
+        if gluco_level < 30 and not(self.sugar_first):
             action[1] = 3   # 3 porzioni → +108 mg/dL circa
-        elif gluco_level < 55:
+        elif gluco_level < 55 and not(self.sugar_first):
             action[1] = 2   # +72 mg/dL
-        elif gluco_level < 70:
+        elif gluco_level < 70 and not(self.sugar_first):
             if carbo == 0 or carbo_time > 3:
                 action[1] = 1   # +36 mg/dL
         elif gluco_level < 90:
-            if insulin > 0 and carbo == 0:
+            if insulin > 0 and carbo == 0  and not(self.sugar_first):
                 action[1] = 1   # +36 mg/dL
             elif carbo > 0 and 1 <= carbo_time <= 3 and (insulin == 0 or time_insulin > 2):
-                    action[0] = int(round(((carbo * 4) / insulin_resistance) * 2))
+                    action[0] = int(((carbo * 4) / insulin_resistance) * 2 - 1)
         elif gluco_level < 160:
+            if gluco_level < 120 and insulin > 0 and carbo == 0  and not(self.sugar_first) and hour!=9 and hour!=13 and hour!=21:
+                action[1] = 1   # +36 mg/dL
             if carbo > 0 and 1 <= carbo_time <= 3 and (insulin == 0 or time_insulin > 2):
-                action[0] = int(round(((carbo * 4) / insulin_resistance) * 2)) #se dopo due ore dal pasto non è stata iniettata insulina, allora corregge per evitare iperglicemie future, però con valore minore
+                action[0] = int(((carbo * 4) / insulin_resistance) * 2) #se dopo due/tre ore dal pasto non è stata iniettata insulina, allora corregge per evitare iperglicemie future
         else:
             if carbo > 0 and 1 <= carbo_time <= 3 and (insulin == 0 or time_insulin > 2):
-                action[0] = int(round(((gluco_level - 110) / insulin_resistance) * 2 + ((carbo * 4) / insulin_resistance) * 2))
-            else:
-                action[0] = int(round(((gluco_level - 110) / insulin_resistance) * 2))
+                action[0] = int(((gluco_level - 110) / insulin_resistance) * 2 + ((carbo * 4) / insulin_resistance) * 2)
+            elif (insulin == 0 or time_insulin > 3):
+                action[0] = int(((gluco_level - 110) / insulin_resistance) * 2)
         
         
         return (action)
@@ -420,47 +420,48 @@ class Gluco_envIRL(gym.Env):
             print("Nessuna traiettoria esperta trovata per il salvataggio.")
 
 
-    def generate_expert_trajectories(self, num_episodes=5):
+    def generate_expert_trajectories(self, num_episodes=600):
         expert_trajectories = []
         
         for i in range(num_episodes):
             print(f"\nTraiettoria esperta n.{i}\n")
             self.state, _ = self.reset()       
+            self.day_insulin = 0
 
             episode = []
             for _ in range(self.len_episodes):
                 action = self.expert_policy()
                 next_state, _, _, _, _ = self.step_IRL(action)
                 self.state = next_state
-                #episode.append((self.discretize_state(self.state), action))
-                episode.append((self.state,action))
+                episode.append((self.discretize_state(self.state), action))
+                #episode.append((self.state,action))
             expert_trajectories.append(episode)
         
         return expert_trajectories
 
-    def train_irl(self, num_episodes=5, iterations=500, alpha=0.1):
+    def train_irl(self, num_episodes=600, iterations=500, alpha=0.1):
         expert_trajectories = self.generate_expert_trajectories(num_episodes)
         self.save_expert_trajectories(expert_trajectories)
-        expert_trajectories += self.loaded_trajectories
+        #expert_trajectories += self.loaded_trajectories
         print(self.ranges)
         #expert_trajectories = self.loaded_trajectories
 
-        #self.maxent_irl(expert_trajectories, iterations, alpha)
+        self.maxent_irl(expert_trajectories, iterations, alpha)
 
 
     def maxent_irl(self, expert_trajectories, iterations=500, alpha=0.1):   #da fare
 
-        state_to_idx = {}
+        state_indices = {}
         idx = 0
 
         for traj in expert_trajectories:
             for state, _ in traj:
                 s = tuple(state)  # stato già discretizzato!
-                if s not in state_to_idx:
-                    state_to_idx[s] = idx
+                if s not in state_indices:
+                    state_indices[s] = idx
                     idx += 1
 
-        num_states = len(state_to_idx)
+        num_states = len(state_indices)
         state_visits = np.zeros(num_states, dtype=np.float32)
         rewards = np.random.uniform(-0.1, 0.1, num_states)
         policy = np.zeros(num_states, dtype=np.float32)
@@ -468,14 +469,14 @@ class Gluco_envIRL(gym.Env):
         # Conta le visite (h, a)
         for traj in expert_trajectories:
             for state, _ in traj:
-                state_visits[state_to_idx[tuple(state)]] += 1
+                state_visits[state_indices[tuple(state)]] += 1
 
         #state_visits /= np.sum(state_visits) + 1e-6
-        state_visits = state_visits / np.max(state_visits + 1e-8)
+        state_visits = state_visits / np.max(state_visits + 1e-6)
 
         for _ in range(iterations):
             policy = np.exp(rewards - logsumexp(rewards))  #distribuzione di probabilità sulle traiettorie
-            policy /= (np.sum(policy)+1e-8)
+            policy /= (np.sum(policy)+1e-6)
 
             expected_state_visits = np.zeros_like(state_visits)
             for state_idx in range(num_states):
@@ -490,25 +491,31 @@ class Gluco_envIRL(gym.Env):
         rewards = np.clip(rewards, -10, None)
         rewards = rewards - np.min(rewards) + 1e-5
 
-        grouped_rewards = {}
-        group_size = 10
+        # 1) Raggruppiamo reward per gluco_bin
+        gluco_groups = {}  # {gluco_bin: [reward1, reward2, ...]}
 
-        for state, idx in state_to_idx.items():
-            g = idx // group_size
-            if g not in grouped_rewards:
-                grouped_rewards[g] = []
-            grouped_rewards[g].append(self.learned_rewards.get(state, 0.0))
+        for state, index in state_indices.items():
+            gluco_bin = state[0]  # <-- il primo elemento dello stato è l’intervallo di glicemia
+            reward = float(rewards[index])
 
-        ranges = []
-        rewards_out = []
+            if gluco_bin not in gluco_groups:
+                gluco_groups[gluco_bin] = []
+            gluco_groups[gluco_bin].append(reward)
 
-        for g, arr in grouped_rewards.items():
-            ranges.append(f"states {g*group_size}-{(g+1)*group_size-1}")
-            rewards_out.append(np.mean(arr))
+        # 2) Media per ogni intervallo di glicemia
+        gluco_rewards = {
+            gluco_bin: float(np.mean(r_list))
+            for gluco_bin, r_list in gluco_groups.items()
+        }
 
+        # 3) Salviamo la versione finale delle reward nel modello
+        self.learned_rewards = gluco_rewards
+
+        # 4) Creazione CSV leggibile
         df = pd.DataFrame({
-            "state_range": ranges,
-            "reward": rewards_out
+            "gluco_bin": list(gluco_rewards.keys()),
+            "reward": list(gluco_rewards.values())
         })
+
         # Salva in un file CSV
         df.to_csv("learned_rewards.csv", index=False)
