@@ -197,7 +197,7 @@ class Gluco_env(gym.Env):
         reward -= max(0, (gluco_level - 180) / 50)
         if gluco_level < 110 and take_insulin > 0:
             reward -= 15
-        if 90 <= gluco_level <= 160:
+        elif 90 <= gluco_level <= 160:
             reward += 10
         elif 70 < gluco_level < 90 or 160 < gluco_level < 179:
             reward += 5

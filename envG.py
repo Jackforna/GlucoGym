@@ -24,13 +24,13 @@ class Gluco_env2(gym.Env):
             low=-1.0, high=5.0, shape=(4,), dtype=np.float32
         )
 
-        self.state = None
+        self.state = [110, 0, 0]
         
         # --- PARAMETRI PAZIENTE VIRTUALE (Realistici) ---
         # ISF (Fattore Sensibilità): 1 U abbassa la glicemia di 40 mg/dL
         self.ISF = 40.0 
-        # CR (Rapporto Carboidrati): 10g alzano la glicemia di 35 mg/dL (circa)
-        self.CR_factor = 3.5 # mg/dL per grammo
+        # CR (Rapporto Carboidrati): 15g alzano la glicemia di 35 mg/dL (circa)
+        self.CR_factor = 2.3 # mg/dL per grammo
         # Basale necessaria: Il fegato produce ~10 mg/dL/h. Serve 0.25 U/h per coprirlo.
         self.liver_output = 10.0 
         self.ideal_basal = self.liver_output / (self.ISF / 4.0) # Approssimazione per step orario
@@ -38,6 +38,7 @@ class Gluco_env2(gym.Env):
         # Code fisiologiche
         self.active_boluses = [] 
         self.active_meals = []   
+        self.active_sugar = []
         
         self.prev_gluco = 120.0
         self.rew_arr = []
@@ -54,18 +55,54 @@ class Gluco_env2(gym.Env):
         # 2. Stacking Azioni (Creazione eventi)
         if insulin_dose > 0:
             self.active_boluses.append({'amount': insulin_dose, 'min_ago': 0})
+            self.state[1] = insulin_dose
         
         if sugar_dose > 0:
             # Zucchero rapido (succo) viene assorbito velocemente ma non istantaneamente
-            self.active_meals.append({'amount': sugar_dose, 'min_ago': 0, 'type': 'fast'})
+            self.active_sugar.append({'amount': sugar_dose, 'min_ago': 0, 'type': 'fast'})
+            #self.active_meals.append({'amount': sugar_dose, 'min_ago': 0, 'type': 'fast'})
 
         # 3. Generazione Pasti (Scenario Realistico)
         # Colazione (8:00), Pranzo (13:00), Cena (20:00) +/- varianza
+        
         if self._should_eat_meal():
             # Carbo complessi (assorbimento lento)
-            carbs = random.uniform(40, 90)
+            carbs = random.uniform(40, 100)
             self.active_meals.append({'amount': carbs, 'min_ago': 0, 'type': 'slow'})
+            self.state[2] = carbs
+        '''
 
+        # Colazione (7:00-9:00)
+        if 7 <= self.hour <= 9 and len(self.active_meals) == 0:
+            if random.random() > 0.4:
+                carbo = random.uniform(40, 80)
+
+        if self.hour == 9 and len(self.active_meals) == 0:
+            if random.random() > 0.4:
+                carbo = random.uniform(40, 80)
+        
+        # Pranzo (12:00-14:00)
+        if 12 <= self.hour <= 14 and len(self.active_meals) == 0:
+            if random.random() > 0.4:
+                carbo = random.uniform(60, 100)
+
+        # Pranzo Obbligatorio (14:00)
+        if self.hour == 14 and len(self.active_meals) == 0:
+            carbo = random.uniform(60, 100)
+
+        # Cena (20:00-22:00)
+        if 20 <= self.hour <= 22 and len(self.active_meals) == 0:
+            if random.random() > 0.4:
+                carbo = random.uniform(40, 100)
+
+        # Cena Obbligatoria (22:00)
+        if self.hour == 22 and len(self.active_meals) == 0:
+            carbo = random.uniform(40, 100)
+
+        carbo = random.uniform(40, 90)
+        self.active_meals.append({'amount': carbo, 'min_ago': 0, 'type': 'slow'})
+        self.state[2] = carbo
+        '''
         # 4. SIMULAZIONE FISIOLOGICA (Il cuore del realismo)
         # Simuliamo step di 1 ora (o frazioni se necessario, qui semplifichiamo a step discreti)
         # Ma usiamo curve di farmacocinetica realistiche.
@@ -74,7 +111,7 @@ class Gluco_env2(gym.Env):
         # Il fegato alza la glicemia costantemente. La basale (qui assunta perfetta o gestita altrove) la abbassa.
         # Assumiamo che l'agente controlli solo i BOLI. La basale è fissa e copre il fegato.
         # Introduciamo un leggero "drift" (errore basale) casuale.
-        basal_drift = random.uniform(-2, 2) 
+        basal_drift = random.uniform(-10, 10) #cambio della glicemia in un'ora
         self.gluco_level += basal_drift 
 
         # --- B. Curva Insulina (Novorapid/Humalog Model) ---
@@ -101,10 +138,13 @@ class Gluco_env2(gym.Env):
                 self.gluco_level -= drop
             
             bolus['min_ago'] += 1
-            if bolus['min_ago'] < len(insulin_curve):
+            if bolus['min_ago'] <= len(insulin_curve):
                 active_boluses_next.append(bolus)
         
         self.active_boluses = active_boluses_next
+
+        if len(self.active_boluses) == 0:
+            self.state[1] = 0
 
         # --- C. Curva Carboidrati ---
         # Fast (Zucchero): [60%, 40%] - 2 ore
@@ -114,6 +154,7 @@ class Gluco_env2(gym.Env):
 
         total_cob = 0.0
         active_meals_next = []
+        active_sugar_next = []
 
         for meal in self.active_meals:
             t = meal['min_ago']
@@ -129,13 +170,34 @@ class Gluco_env2(gym.Env):
                 self.gluco_level += rise
             
             meal['min_ago'] += 1
-            if meal['min_ago'] < len(curve):
+            if meal['min_ago'] <= len(curve):
                 active_meals_next.append(meal)
+
+        for sugar in self.active_sugar:
+            t = sugar['min_ago']
+            grams = sugar['amount']
+            curve = fast_curve
+            remaining_pct = sum(curve[t+1:]) if t+1 < len(curve) else 0
+            total_cob += grams * remaining_pct
+            
+            if t < len(curve):
+                # Quanto sale la glicemia
+                rise = grams * self.CR_factor * curve[t]
+                self.gluco_level += rise
+            
+            sugar['min_ago'] += 1
+            if sugar['min_ago'] <= len(curve):
+                active_sugar_next.append(sugar)
         
         self.active_meals = active_meals_next
+        self.active_sugar = active_sugar_next
+
+        if len(self.active_meals) == 0:
+            self.state[2] = 0
 
         # Clipping e Trend
         self.gluco_level = np.clip(self.gluco_level, 0, 600)
+        self.state[0] = self.gluco_level
         trend = self.gluco_level - self.prev_gluco
         self.prev_gluco = self.gluco_level
         self.hour = (self.hour + 1) % 24
@@ -156,18 +218,21 @@ class Gluco_env2(gym.Env):
         self.rew_arr.append(reward)
         self.gluco_arr.append(self.gluco_level)
         
-        return self._get_obs(total_iob, total_cob, trend), float(reward), terminated, truncated, {}
+        return self._get_obs(total_iob, total_cob, trend), float(reward), terminated, truncated, self.state #per il test inserire self.state
 
     def _should_eat_meal(self):
         # Generatore pasti probabilistico basato sull'ora
         h = self.hour
         prob = 0.0
-        if 7 <= h <= 9: prob = 0.2 # Colazione
-        elif 12 <= h <= 14: prob = 0.2 # Pranzo
-        elif 19 <= h <= 21: prob = 0.2 # Cena
+        if 7 <= h < 9: prob = 0.2 # Colazione
+        elif h == 9: prob = 1
+        elif 12 <= h < 14: prob = 0.2 # Pranzo
+        elif h == 14: prob = 1
+        elif 19 <= h < 21: prob = 0.2 # Cena
+        elif h == 21: prob = 1
         
         # Evita di mangiare se c'è già un pasto attivo (per non sovrapporre troppo nel training)
-        if len([m for m in self.active_meals if m['type'] == 'slow']) > 0:
+        if len(self.active_meals) > 0:
             prob = 0.0
             
         return random.random() < prob
@@ -210,8 +275,9 @@ class Gluco_env2(gym.Env):
         self.prev_gluco = self.gluco_level
         self.active_boluses = []
         self.active_meals = []
-        self.rew_arr = []
-        self.gluco_arr = []
+        self.active_sugar = []
+        #self.rew_arr = []
+        #self.gluco_arr = []
         return self._get_obs(0,0,0), {}
 
     def render(self):

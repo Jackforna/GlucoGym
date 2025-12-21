@@ -36,7 +36,7 @@ class Gluco_envIRL(gym.Env):
         self.last_5_glucolevels = deque(maxlen=5) #array che contiene i valori delle ultime 5 glicemie al risveglio (fissare orario intorno alle 7)
         self.day_insulin = 0
         self.learned_rewards = {}
-        #self.loaded_trajectories = self.load_expert_trajectories()
+        self.loaded_trajectories = self.load_expert_trajectories()
         #self.save_expert_trajectories(self.loaded_trajectories)
         self.loaded_trajectories = []
         self.len_episodes = 5000
@@ -420,7 +420,7 @@ class Gluco_envIRL(gym.Env):
             print("Nessuna traiettoria esperta trovata per il salvataggio.")
 
 
-    def generate_expert_trajectories(self, num_episodes=600):
+    def generate_expert_trajectories(self, num_episodes=300):
         expert_trajectories = []
         
         for i in range(num_episodes):
@@ -439,10 +439,10 @@ class Gluco_envIRL(gym.Env):
         
         return expert_trajectories
 
-    def train_irl(self, num_episodes=600, iterations=500, alpha=0.1):
+    def train_irl(self, num_episodes=300, iterations=500, alpha=0.1):
         expert_trajectories = self.generate_expert_trajectories(num_episodes)
         self.save_expert_trajectories(expert_trajectories)
-        #expert_trajectories += self.loaded_trajectories
+        expert_trajectories += self.loaded_trajectories
         print(self.ranges)
         #expert_trajectories = self.loaded_trajectories
 
