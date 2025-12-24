@@ -1,6 +1,6 @@
 import numpy as np
-#from envJ import Gluco_env
 from envG import Gluco_env2
+#from envMin import Gluco_env_30min
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
 from stable_baselines3.common.env_checker import check_env
@@ -13,10 +13,10 @@ def main():
     env = Gluco_env2()
     check_env(env, warn=True)
     model = PPO("MlpPolicy", env, verbose=0)
-    model.learn(total_timesteps=300000, progress_bar=ProgressBarCallback())
+    model.learn(total_timesteps=500000, progress_bar=ProgressBarCallback())
     model.save("ppo_model")
 
-    window_size = 300
+    window_size = 500
 
     rewards, gluco_levels = env.get_res() #valori che ritorna l'environment
 

@@ -3,10 +3,10 @@ from gymnasium import spaces
 import numpy as np
 import random
 
-class Gluco_env2(gym.Env):
+class Gluco_env_30min(gym.Env):
 
     def __init__(self):
-        super(Gluco_env2, self).__init__()
+        super(Gluco_env_30min, self).__init__()
 
         # --- AZIONI (Mantenute Discrete Multi-Dimensionali) ---
         # 0: Bolus Insulina (0-20 step). 1 step = 0.5 U. Max 10.0 U.
@@ -42,6 +42,7 @@ class Gluco_env2(gym.Env):
         self.prev_gluco = 120.0
         self.rew_arr = []
         self.gluco_arr = []
+        self.min = 0
         self.hour = 0
 
     def step(self, action):
@@ -53,13 +54,12 @@ class Gluco_env2(gym.Env):
 
         # 2. Stacking Azioni (Creazione eventi)
         if insulin_dose > 0:
-            self.active_boluses.append({'amount': insulin_dose, 'hour_ago': 0})
+            self.active_boluses.append({'amount': insulin_dose, '30min_ago': 0})
             self.state[1] = insulin_dose
         
         if sugar_dose > 0:
             # Zucchero rapido (succo) viene assorbito velocemente ma non istantaneamente
-            self.active_sugar.append({'amount': sugar_dose, 'hour_ago': 0, 'type': 'fast'})
-            #self.active_meals.append({'amount': sugar_dose, 'hour_ago': 0, 'type': 'fast'})
+            self.active_sugar.append({'amount': sugar_dose, '30min_ago': 0, 'type': 'fast'})
 
         # 3. Generazione Pasti (Scenario Realistico)
         # Colazione (8:00), Pranzo (13:00), Cena (20:00) +/- varianza
@@ -67,7 +67,7 @@ class Gluco_env2(gym.Env):
         if self._should_eat_meal():
             # Carbo complessi (assorbimento lento)
             carbs = random.uniform(40, 100)
-            self.active_meals.append({'amount': carbs, 'hour_ago': 0, 'type': 'slow'})
+            self.active_meals.append({'amount': carbs, '30min_ago': 0, 'type': 'slow'})
             self.state[2] = carbs
         
         # 4. SIMULAZIONE FISIOLOGICA (Il cuore del realismo)
@@ -79,19 +79,19 @@ class Gluco_env2(gym.Env):
         # Assumiamo che l'agente controlli solo i BOLI. La basale è fissa e copre il fegato.
         # Introduciamo un leggero "drift" (errore basale) casuale.
         basal_drift = random.uniform(-10, 10) #cambio della glicemia in un'ora
-        self.gluco_level += basal_drift 
+        self.gluco_level += basal_drift / 2
 
         # --- B. Curva Insulina (Novorapid/Humalog Model) ---
         # Durata azione: ~4-5 ore. Picco: 60-90 min.
         # Profilo discretizzato su 5 ore: [5%, 25%, 40%, 20%, 10%]
         # NOTA: Questo ritardo rende il training difficile ma realistico.
-        insulin_curve = [0.05, 0.25, 0.40, 0.20, 0.10]
+        insulin_curve = [0.02, 0.03, 0.10, 0.15, 0.25, 0.15, 0.12, 0.08, 0.07, 0.03]
         
         total_iob = 0.0
         active_boluses_next = []
         
         for bolus in self.active_boluses:
-            t = bolus['hour_ago'] # in ore
+            t = bolus['30min_ago'] # in ore
             dose = bolus['amount']
             
             # Calcolo IOB (quanto ne resta da assorbire in futuro)
@@ -104,8 +104,8 @@ class Gluco_env2(gym.Env):
                 drop = dose * self.ISF * insulin_curve[t]
                 self.gluco_level -= drop
             
-            bolus['hour_ago'] += 1
-            if bolus['hour_ago'] <= len(insulin_curve):
+            bolus['30min_ago'] += 1
+            if bolus['30min_ago'] <= len(insulin_curve):
                 active_boluses_next.append(bolus)
         
         self.active_boluses = active_boluses_next
@@ -116,15 +116,15 @@ class Gluco_env2(gym.Env):
         # --- C. Curva Carboidrati ---
         # Fast (Zucchero): [60%, 40%] - 2 ore
         # Slow (Pasto): [10%, 30%, 40%, 20%] - 4 ore (Digestione lenta)
-        fast_curve = [0.6, 0.4]
-        slow_curve = [0.1, 0.3, 0.4, 0.2]
+        fast_curve = [0.40, 0.30, 0.20, 0.10]
+        slow_curve = [0.03, 0.07, 0.1, 0.2, 0.3, 0.1, 0.13, 0.07]
 
         total_cob = 0.0
         active_meals_next = []
         active_sugar_next = []
 
         for meal in self.active_meals:
-            t = meal['hour_ago']
+            t = meal['30min_ago']
             grams = meal['amount']
             curve = fast_curve if meal['type'] == 'fast' else slow_curve
             
@@ -136,12 +136,12 @@ class Gluco_env2(gym.Env):
                 rise = grams * self.CR_factor * curve[t]
                 self.gluco_level += rise
             
-            meal['hour_ago'] += 1
-            if meal['hour_ago'] <= len(curve):
+            meal['30min_ago'] += 1
+            if meal['30min_ago'] <= len(curve):
                 active_meals_next.append(meal)
 
         for sugar in self.active_sugar:
-            t = sugar['hour_ago']
+            t = sugar['30min_ago']
             grams = sugar['amount']
             curve = fast_curve
             remaining_pct = sum(curve[t+1:]) if t+1 < len(curve) else 0
@@ -152,8 +152,8 @@ class Gluco_env2(gym.Env):
                 rise = grams * self.CR_factor * curve[t]
                 self.gluco_level += rise
             
-            sugar['hour_ago'] += 1
-            if sugar['hour_ago'] <= len(curve):
+            sugar['30min_ago'] += 1
+            if sugar['30min_ago'] <= len(curve):
                 active_sugar_next.append(sugar)
         
         self.active_meals = active_meals_next
@@ -167,14 +167,15 @@ class Gluco_env2(gym.Env):
         self.state[0] = self.gluco_level
         trend = self.gluco_level - self.prev_gluco
         self.prev_gluco = self.gluco_level
-        self.hour = (self.hour + 1) % 24
+        self.min += 30
+        self.hour = (self.min // 60) % 24
 
         # 5. REWARD FUNCTION (Adattata al ritardo)
         terminated = False
         truncated = False
         
         # Morte Clinica
-        if self.gluco_level < 20 or self.gluco_level >= 590:
+        if self.gluco_level < 20 or self.gluco_level >= 400:
             terminated = True
             reward = -100.0
         else:
@@ -209,13 +210,13 @@ class Gluco_env2(gym.Env):
         
         # 1. Distanza dal target (Gaussiana)
         error = abs(bg - 110)
-        r = np.exp(- (error / 50.0)**2) * 2.0 # Max +2
+        r = np.exp(- (error / 40.0)**2) * 2.0 # Max +2
         
         # 2. Penalità Ipo/Iper
-        if bg < 70: 
-            r -= (70 - bg) * 0.2 # Ipo penalizzata pesantemente
-        if bg > 180:
-            r -= (bg - 180) * 0.05 # Iper penalizzata linearmente
+        if bg < 75: 
+            r -= (75 - bg) * 0.2 # Ipo penalizzata pesantemente
+        if bg > 160:
+            r -= (bg - 160) * 0.15 # Iper penalizzata linearmente
             
         # 3. Penalità "Safety" su IOB (CRUCIALE per realismo)
         # Se la glicemia sta scendendo o è bassa, E ho ancora molta insulina attiva,
@@ -227,9 +228,9 @@ class Gluco_env2(gym.Env):
         return r
 
     def _get_obs(self, iob, cob, trend):
-        # Normalizzazione: Centrato su 110, diviso per 200 (range fisiologico)
-        obs_gluco = (self.gluco_level - 110.0) / 200.0
-        obs_trend = trend / 50.0
+        # Normalizzazione: Centrato su 110, diviso per 100 (range fisiologico)
+        obs_gluco = (self.gluco_level - 110.0) / 100.0
+        obs_trend = trend / 10.0
         obs_iob = iob / 10.0 # Normalizzato su 10U
         obs_cob = cob / 100.0 # Normalizzato su 100g
         
@@ -237,7 +238,8 @@ class Gluco_env2(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        self.hour = random.randint(0, 23)
+        self.total_steps = random.randint(0, 48)
+        self.hour = (self.total_steps // 2) % 24
         self.gluco_level = random.uniform(100, 160)
         self.prev_gluco = self.gluco_level
         self.active_boluses = []
